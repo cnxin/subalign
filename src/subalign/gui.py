@@ -13,11 +13,21 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 
+LANG_TO_CODE = {"自动检测": "auto", "日语": "ja", "英语": "en", "中文": "zh", "韩语": "ko"}
+MODEL_TO_CODE = {
+    "极速 (tiny)": "tiny", "基础 (base)": "base", "标准 (small)": "small",
+    "推荐 (medium)": "medium", "最佳 (large-v3)": "large-v3",
+}
+DEVICE_TO_CODE = {"auto (自动)": "auto", "cuda (显卡)": "cuda", "cpu": "cpu"}
+STYLE_TO_CODE = {"分离 (split)": "split", "合并双行 (merged)": "merged", "注释 (comment)": "comment"}
+BACKEND_TO_CODE = {"local (本地模型)": "local", "openai (在线API)": "openai"}
+
+
 class SubAlignGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("SubAlign - 字幕自动对齐工具 v0.1")
-        self.root.geometry("780x700")
+        self.root.title("SubAlign - 字幕自动对齐工具 v0.2")
+        self.root.geometry("780x750")
         self.root.resizable(True, True)
 
         self._build_ui()
@@ -75,41 +85,51 @@ class SubAlignGUI:
         param_frame = ttk.LabelFrame(self.root, text="参数设置", padding=10)
         param_frame.pack(fill="x", padx=10, pady=5)
 
+        # ASR 引擎
+        ttk.Label(param_frame, text="AI 引擎:").grid(row=0, column=0, sticky="w")
+        self.backend_var = tk.StringVar(value="local")
+        backend_combo = ttk.Combobox(param_frame, textvariable=self.backend_var, width=18,
+                                     values=["local (本地模型)", "openai (在线API)"])
+        backend_combo.grid(row=0, column=1, padx=5, sticky="w")
+
         # 语言
-        ttk.Label(param_frame, text="语言:").grid(row=0, column=0, sticky="w")
-        self.lang_var = tk.StringVar(value="auto")
+        ttk.Label(param_frame, text="语言:").grid(row=0, column=2, padx=(20, 0), sticky="w")
+        self.lang_var = tk.StringVar(value="自动检测")
         lang_combo = ttk.Combobox(param_frame, textvariable=self.lang_var, width=10,
-                                  values=["auto", "ja", "en", "zh"])
-        lang_combo.grid(row=0, column=1, padx=5, sticky="w")
+                                  values=["自动检测", "日语", "英语", "中文", "韩语"])
+        lang_combo.grid(row=0, column=3, padx=5, sticky="w")
 
         # 模型
-        ttk.Label(param_frame, text="模型:").grid(row=0, column=2, padx=(20, 0), sticky="w")
-        self.model_var = tk.StringVar(value="medium")
-        model_combo = ttk.Combobox(param_frame, textvariable=self.model_var, width=10,
-                                   values=["tiny", "base", "small", "medium", "large-v3"])
-        model_combo.grid(row=0, column=3, padx=5, sticky="w")
+        ttk.Label(param_frame, text="模型:").grid(row=1, column=0, sticky="w", pady=(5, 0))
+        self.model_var = tk.StringVar(value="推荐 (medium)")
+        model_combo = ttk.Combobox(param_frame, textvariable=self.model_var, width=18,
+                                   values=["极速 (tiny)", "基础 (base)", "标准 (small)",
+                                           "推荐 (medium)", "最佳 (large-v3)"])
+        model_combo.grid(row=1, column=1, padx=5, sticky="w", pady=(5, 0))
 
         # 设备
-        ttk.Label(param_frame, text="设备:").grid(row=0, column=4, padx=(20, 0), sticky="w")
+        ttk.Label(param_frame, text="设备:").grid(row=1, column=2, padx=(20, 0), sticky="w", pady=(5, 0))
         self.device_var = tk.StringVar(value="auto")
-        device_combo = ttk.Combobox(param_frame, textvariable=self.device_var, width=8,
-                                    values=["auto", "cuda", "cpu"])
-        device_combo.grid(row=0, column=5, padx=5, sticky="w")
+        device_combo = ttk.Combobox(param_frame, textvariable=self.device_var, width=10,
+                                    values=["auto (自动)", "cuda (显卡)", "cpu"])
+        device_combo.grid(row=1, column=3, padx=5, sticky="w", pady=(5, 0))
 
         # 双语样式
-        ttk.Label(param_frame, text="双语样式:").grid(row=1, column=0, sticky="w", pady=(5, 0))
-        self.bilingual_style_var = tk.StringVar(value="split")
-        bi_combo = ttk.Combobox(param_frame, textvariable=self.bilingual_style_var, width=10,
-                                values=["split", "merged", "comment"])
-        bi_combo.grid(row=1, column=1, padx=5, sticky="w", pady=(5, 0))
+        ttk.Label(param_frame, text="双语样式:").grid(row=2, column=0, sticky="w", pady=(5, 0))
+        self.bilingual_style_var = tk.StringVar(value="分离 (split)")
+        bi_combo = ttk.Combobox(param_frame, textvariable=self.bilingual_style_var, width=18,
+                                values=["分离 (split)", "合并双行 (merged)", "注释 (comment)"])
+        bi_combo.grid(row=2, column=1, padx=5, sticky="w", pady=(5, 0))
 
-        ttk.Label(param_frame, text="主语言:").grid(row=1, column=2, padx=(20, 0), sticky="w", pady=(5, 0))
-        self.pri_lang_var = tk.StringVar(value="ja")
-        ttk.Entry(param_frame, textvariable=self.pri_lang_var, width=5).grid(row=1, column=3, sticky="w", pady=(5, 0))
+        ttk.Label(param_frame, text="主语言:").grid(row=2, column=2, padx=(20, 0), sticky="w", pady=(5, 0))
+        self.pri_lang_var = tk.StringVar(value="日语")
+        ttk.Combobox(param_frame, textvariable=self.pri_lang_var, width=8,
+                     values=["日语", "英语", "中文"]).grid(row=2, column=3, sticky="w", pady=(5, 0))
 
-        ttk.Label(param_frame, text="副语言:").grid(row=1, column=4, padx=(20, 0), sticky="w", pady=(5, 0))
-        self.sec_lang_var = tk.StringVar(value="zh")
-        ttk.Entry(param_frame, textvariable=self.sec_lang_var, width=5).grid(row=1, column=5, sticky="w", pady=(5, 0))
+        ttk.Label(param_frame, text="副语言:").grid(row=3, column=0, sticky="w", pady=(5, 0))
+        self.sec_lang_var = tk.StringVar(value="中文")
+        ttk.Combobox(param_frame, textvariable=self.sec_lang_var, width=8,
+                     values=["中文", "日语", "英语"]).grid(row=3, column=1, sticky="w", pady=(5, 0))
 
         # 检测缺失
         self.detect_missing_var = tk.BooleanVar(value=True)
@@ -200,9 +220,11 @@ class SubAlignGUI:
         video = self.video_var.get()
         sub = self.sub_var.get()
         out = self.out_var.get()
-        lang = self.lang_var.get()
-        model = self.model_var.get()
-        device = self.device_var.get()
+
+        # Map Chinese display names to codes
+        lang = LANG_TO_CODE.get(self.lang_var.get(), self.lang_var.get())
+        model = MODEL_TO_CODE.get(self.model_var.get(), self.model_var.get())
+        device = DEVICE_TO_CODE.get(self.device_var.get(), self.device_var.get())
 
         if not video:
             raise ValueError("请选择视频文件")
@@ -247,9 +269,9 @@ class SubAlignGUI:
                 "bilingual", video,
                 "--primary", sub,
                 "--secondary", sub2,
-                "--primary-lang", self.pri_lang_var.get(),
-                "--secondary-lang", self.sec_lang_var.get(),
-                "--bilingual-style", self.bilingual_style_var.get(),
+                "--primary-lang", LANG_TO_CODE.get(self.pri_lang_var.get(), self.pri_lang_var.get()),
+                "--secondary-lang", LANG_TO_CODE.get(self.sec_lang_var.get(), self.sec_lang_var.get()),
+                "--bilingual-style", STYLE_TO_CODE.get(self.bilingual_style_var.get(), self.bilingual_style_var.get()),
                 "-o", out,
             ])
 

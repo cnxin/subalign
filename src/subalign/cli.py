@@ -256,5 +256,88 @@ def auto(ctx, video, subtitle, output):
     console.print(f"[green]Done:[/green] {output}")
 
 
+@main.command()
+@click.pass_context
+def config(ctx):
+    """查看和修改配置（API Key、默认模型、语言等）。"""
+    from subalign.models.config import (
+        ASR_BACKENDS,
+        LANG_NAMES,
+        MODEL_NAMES,
+        load_user_config,
+        save_user_config,
+    )
+
+    current = load_user_config()
+
+    console.print("[bold]当前配置[/bold]")
+    console.print()
+
+    # ASR backend
+    backend_names = {
+        "local": "本地模型 (faster-whisper/WhisperX)",
+        "openai": "OpenAI Whisper API (在线)",
+    }
+    console.print(f"  ASR 引擎:     {backend_names.get(current['asr_backend'], current['asr_backend'])}")
+    console.print(f"  本地模型:     {MODEL_NAMES.get(current['local_model'], current['local_model'])}")
+    console.print(f"  计算设备:     {current['local_device']}")
+    console.print(f"  默认语言:     {LANG_NAMES.get(current.get('default_language') or 'auto', 'auto')}")
+    console.print(f"  OpenAI Key:   {'已配置' if current.get('openai_api_key') else '[red]未配置[/red]'}")
+    if current.get("openai_base_url"):
+        console.print(f"  OpenAI 端点:  {current['openai_base_url']}")
+    console.print(f"  OpenAI 模型:  {current.get('openai_model', 'whisper-1')}")
+    console.print()
+
+    # Interactive edit
+    console.print("[bold]修改配置[/bold]（直接回车保持当前值）")
+    console.print()
+
+    new_cfg = dict(current)
+
+    # Backend
+    console.print("ASR 引擎选项: local=本地模型, openai=OpenAI API")
+    val = click.prompt("  ASR 引擎", default=current["asr_backend"], show_default=True)
+    new_cfg["asr_backend"] = val
+
+    if val == "openai" or current.get("openai_api_key"):
+        key = click.prompt(
+            "  OpenAI API Key",
+            default=current.get("openai_api_key") or "",
+            show_default=False,
+            hide_input=True,
+        )
+        if key:
+            new_cfg["openai_api_key"] = key
+
+        base_url = click.prompt(
+            "  OpenAI 端点 (留空=官方, 或填自定义兼容地址)",
+            default=current.get("openai_base_url") or "",
+            show_default=False,
+        )
+        new_cfg["openai_base_url"] = base_url
+
+        model = click.prompt(
+            "  OpenAI 模型",
+            default=current.get("openai_model") or "whisper-1",
+        )
+        new_cfg["openai_model"] = model
+
+    # Language
+    lang_options = ", ".join(f"{k}={v}" for k, v in list(LANG_NAMES.items())[:6])
+    console.print(f"  语言选项: {lang_options}")
+    lang = click.prompt("  默认语言", default=current.get("default_language") or "auto")
+    new_cfg["default_language"] = None if lang == "auto" else lang
+
+    # Local model
+    model_options = ", ".join(f"{k}" for k in MODEL_NAMES)
+    console.print(f"  本地模型选项: {model_options}")
+    local_model = click.prompt("  本地模型", default=current.get("local_model") or "medium")
+    new_cfg["local_model"] = local_model
+
+    save_user_config(new_cfg)
+    console.print()
+    console.print(f"[green]配置已保存到[/green] {current.get('config_file', '~/.config/subalign/config.json')}")
+
+
 if __name__ == "__main__":
     main()

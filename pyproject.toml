@@ -21,8 +21,10 @@ dependencies = [
 
 [project.optional-dependencies]
 whisperx = ["whisperx>=3.1"]
+openai = ["openai>=1.0"]
 full = [
     "whisperx>=3.1",
+    "openai>=1.0",
     "librosa>=0.10",
     "silero-vad>=5.0",
 ]
