@@ -83,7 +83,7 @@ def analyze_subtitles(subs: pysubs2.SSAFile, path: Path | None = None) -> Subtit
         fmt = {"srt": "srt", ".srt": "srt", ".vtt": "vtt", ".ass": "ass",
                ".ssa": "ssa", ".txt": "txt"}.get(ext, "ass")
 
-    styles = [s.name for s in subs.styles.values()] if hasattr(subs, "styles") else []
+    styles = list(subs.styles.keys()) if hasattr(subs, "styles") else []
 
     return SubtitleInfo(
         path=path or Path("unknown"),

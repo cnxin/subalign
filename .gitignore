@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Cache
+.cache/
+*.wav
+*.temp.ass
+
+# Model files (too large for git)
+*.bin
+*.pt
+*.onnx
+models/
