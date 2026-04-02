@@ -1,436 +1,255 @@
 # SubAlign — AI 字幕自动对齐工具
 
-将已有字幕文本通过语音识别自动匹配到视频时间轴，输出可在 Aegisub 中编辑的 ASS 文件。
-
-## 功能总览
-
-| 场景 | 命令 | 说明 |
-|------|------|------|
-| S2 | `subalign sync` | 有时间轴但偏移 → 音频指纹快速校正 |
-| S3 | `subalign align` | 无时间轴/部分时间轴 → ASR 全量对齐 |
-| S4 | `subalign snap` | OP/ED → 帧级对齐到关键帧/节拍 |
-| S5 | `subalign bilingual` | 双语字幕 → 主语言打轴 + 副语言继承 |
-| S6 | `subalign split-bd` | BD 多集视频 → 自动检测集边界 + 字幕拼接 |
-| 自动 | `subalign auto` | 自动检测场景并选择对应流程 |
+有视频、有字幕文本，但是时间轴对不上？这个工具帮你自动搞定。
 
 ---
 
-## 安装
+## 能做什么
 
-### 环境要求
+简单说就是六件事：
 
-- Python 3.10+
-- ffmpeg + ffprobe（必须在 PATH 中）
-- 可选：NVIDIA GPU + CUDA（加速 ASR）
-
-### 安装步骤
-
-```bash
-# 克隆项目
-git clone <repo-url> subalign
-cd subalign
-
-# 基础安装（ffsubsync + faster-whisper）
-pip install -e .
-
-# 完整安装（含 WhisperX + librosa + silero-vad）
-pip install -e ".[full]"
-
-# 开发安装
-pip install -e ".[full,dev]"
+```
+你有什么                    → SubAlign 帮你做什么
+─────────────────────────────────────────────────
+字幕时间轴和视频对不上        → 自动校正（几秒钟搞定）
+字幕只有文本没有时间轴        → AI 语音识别自动打轴
+字幕缺了几句                → 自动找出缺失的地方
+OP/ED 字幕要卡帧            → 自动吸附到关键帧
+日语+中文要做双语字幕         → 自动对齐合并
+BD光盘多集连在一起           → 自动识别每集开头结尾
 ```
 
-### 验证安装
+---
 
-```bash
+## 第一步：安装
+
+### 方法 A：一键安装（推荐）
+
+1. 双击项目里的 **`install.bat`**
+2. 它会自动检查 Python 和 ffmpeg，缺什么提示你装什么
+3. 装完就能用了
+
+### 方法 B：手动安装
+
+如果一键脚本不好使，按这个顺序来：
+
+**① 装 Python**（已经有的跳过）
+
+去 https://www.python.org/downloads/ 下载安装，**安装时一定勾选 "Add Python to PATH"**。
+
+装完打开命令提示符（Win+R 输入 cmd），输入：
+```
+python --version
+```
+能看到版本号就 OK。
+
+**② 装 ffmpeg**（已经有的跳过）
+
+最简单的方法 — 打开命令提示符输入：
+```
+winget install ffmpeg
+```
+或者去 https://www.gyan.dev/ffmpeg/builds/ 下载 `ffmpeg-release-essentials.zip`，解压后把里面 `bin` 文件夹的路径加到系统环境变量 PATH 里。
+
+验证：
+```
+ffmpeg -version
+```
+
+**③ 装 SubAlign**
+
+打开命令提示符，cd 到项目目录，然后：
+```
+cd D:\projects\subalign
+pip install -e .
+```
+
+验证：
+```
 subalign --help
 ```
 
-### ffmpeg 安装
+**④ 可选：装 GPU 加速**（有 NVIDIA 显卡才需要）
 
-Windows:
-```bash
-# 使用 scoop
-scoop install ffmpeg
-
-# 或使用 chocolatey
-choco install ffmpeg
+没装也能用，就是 AI 识别会慢一些（用 CPU 跑）。有显卡的话：
 ```
-
-Linux / macOS:
-```bash
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# macOS
-brew install ffmpeg
-```
-
----
-
-## 快速开始
-
-### 最简单的用法：自动模式
-
-```bash
-subalign auto video.mkv subtitle.srt -o aligned.ass
-```
-
-工具会自动检测字幕状态（有无时间轴、是否偏移），选择最合适的对齐策略。
-
----
-
-## 使用指南
-
-### 场景 S2：字幕时间轴偏移/不准
-
-**适用情况**：字幕有时间码但与视频不同步（如整体偏移、帧率不匹配）。
-
-```bash
-# 基础用法 - 使用 ffsubsync 音频指纹校正
-subalign sync video.mkv subtitle.srt -o aligned.ass
-
-# 使用 alass 引擎（更擅长处理广告分割）
-subalign sync video.mkv subtitle.srt -o aligned.ass --backend alass
-
-# 有参考字幕时（极快，<1秒）
-subalign sync video.mkv bad_timing.srt -o aligned.ass --reference good_timing.srt
-
-# 校正后再用 ASR 微调（更精确但更慢）
-subalign sync video.mkv subtitle.srt -o aligned.ass --refine
-```
-
-**工作原理**：
-1. ffsubsync 提取视频音频的语音活动指纹
-2. 提取字幕的语音时间分布
-3. FFT 交叉相关找到最佳时间偏移
-4. 可选：WhisperX 逐句验证并微调
-
----
-
-### 场景 S3：纯文本或缺失时间轴
-
-**适用情况**：有字幕文本但没有时间码（如翻译文稿），或部分字幕缺失。
-
-```bash
-# 基础用法 - 指定语言
-subalign align video.mkv script.txt --lang ja -o aligned.ass
-
-# 自动检测语言
-subalign align video.mkv subtitle.srt -o aligned.ass
-
-# 检测缺失段落（ASR 有内容但字幕无对应 → 标记为 Comment）
-subalign align video.mkv partial.srt -o aligned.ass --detect-missing
-
-# 导出对齐报告
-subalign align video.mkv script.txt -o aligned.ass --report report.json
-
-# 使用小模型加速（精度降低）
-subalign align video.mkv script.txt -o aligned.ass --model tiny
-
-# 使用大模型提高精度
-subalign align video.mkv script.txt -o aligned.ass --model large-v3
-```
-
-**Whisper 模型选择**：
-
-| 模型 | 大小 | 速度 | 精度 | 推荐场景 |
-|------|------|------|------|----------|
-| `tiny` | ~75MB | 极快 | 低 | 快速预览/测试 |
-| `base` | ~150MB | 快 | 中低 | 简单对白 |
-| `small` | ~500MB | 中 | 中 | 日常使用 |
-| `medium` | ~1.5GB | 较慢 | 高 | **默认推荐** |
-| `large-v3` | ~3GB | 慢 | 最高 | 复杂场景/多语言 |
-
-**对齐报告 (report.json) 说明**：
-
-```json
-{
-  "total_alignments": 350,
-  "matched": 320,           // 成功匹配
-  "low_confidence": 15,     // 低置信度（ASS 中标蓝色）
-  "missing_in_subtitle": 10,// ASR 检测到但字幕缺失
-  "missing_in_asr": 5,      // 字幕有但 ASR 未识别
-  "average_confidence": 0.87
-}
-```
-
-**输出 ASS 中的特殊标记**：
-- `{\\c&H0000FF&}[?]` — 低置信度行，建议人工检查
-- `{\\c&H00FF00&}[ASR]` — ASR 检测到的缺失段落（Comment 行）
-
----
-
-### 场景 S4：OP/ED 帧级对齐
-
-**适用情况**：OP/ED 字幕需要与画面帧精确对齐（如特效字幕、卡拉 OK 字幕）。
-
-```bash
-# 基础用法 - 自动 snap 到关键帧 + 音频节拍
-subalign snap video.mkv oped.ass -o snapped.ass
-
-# 仅关键帧对齐（不用音频节拍）
-subalign snap video.mkv oped.ass -o snapped.ass --no-beats
-
-# 调整 snap 容差（默认 80ms）
-subalign snap video.mkv oped.ass -o snapped.ass --tolerance 0.05
-```
-
-**工作原理**：
-1. ffmpeg 提取视频场景切换点（优先级最高）
-2. ffprobe 提取关键帧列表
-3. librosa 检测音频节拍/重音点（需安装 `[full]`）
-4. 每条字幕的起止时间 snap 到最近的参考点
-5. 保证最小显示时长 ≥ 500ms
-
----
-
-### 场景 S5：双语字幕
-
-**适用情况**：需要同时显示两种语言（如日语 + 中文翻译）。
-
-```bash
-# 基础用法 - 分离样式（默认）
-subalign bilingual video.mkv \
-  --primary ja_sub.srt \
-  --secondary cn_sub.txt \
-  --primary-lang ja \
-  --secondary-lang zh \
-  -o bilingual.ass
-
-# 双行合并模式（一条字幕包含两种语言）
-subalign bilingual video.mkv \
-  --primary ja_sub.srt \
-  --secondary cn_sub.txt \
-  --bilingual-style merged \
-  -o bilingual.ass
-
-# 副语言作为 Comment（不显示但可在 Aegisub 中查看）
-subalign bilingual video.mkv \
-  --primary ja_sub.srt \
-  --secondary cn_sub.txt \
-  --bilingual-style comment \
-  -o bilingual.ass
-```
-
-**三种输出样式**：
-
-| 样式 | `--bilingual-style` | 效果 |
-|------|---------------------|------|
-| 分离 | `split`（默认） | 主语言 Style `JP`（上方）+ 副语言 Style `CN`（下方），独立样式 |
-| 合并 | `merged` | 单条字幕用 `\N` 换行：上方主语言/下方副语言 |
-| 注释 | `comment` | 副语言为 Comment 行（不显示，Aegisub 中可查阅） |
-
-**对齐策略**（自动选择）：
-1. 行数一致 → 直接 1:1 映射
-2. 两份都有时间码 → 时间重叠锚点对齐
-3. 行数不一致 → 比例分配 + 标记 `[REVIEW]`
-
-**注意**：副语言不依赖 ASR（翻译文本与原声不同），而是继承主语言的时间轴。
-
----
-
-### 场景 S6：BD 多集视频分割
-
-**适用情况**：Blu-ray 光盘通常将多集编码为单个视频文件，需要自动识别集边界。
-
-```bash
-# 步骤 1：仅检测集边界（不拼接，先确认准确度）
-subalign split-bd bd_disc.mkv --detect-only
-```
-
-输出示例：
-```
-Total duration: 4420.0s (73.7min)
-Detected episodes: 3
-
-  EP01: 0.0s - 1478.5s (24.6min) [silence, black] confidence=90.0%
-  EP02: 1481.2s - 2958.8s (24.6min) [silence, black] confidence=90.0%
-  EP03: 2961.5s - 4420.0s (24.3min) [duration] confidence=80.0%
-```
-
-```bash
-# 步骤 2：确认后，提供字幕文件拼接
-subalign split-bd bd_disc.mkv \
-  --subs ep01.srt ep02.srt ep03.srt \
-  -o merged.ass
-
-# 自定义集时长范围（如 OVA 可能更长）
-subalign split-bd bd_disc.mkv \
-  --subs ep01.srt ep02.srt \
-  --ep-min 1500 --ep-max 2400 \
-  -o merged.ass
-```
-
-**检测原理**（多信号融合）：
-1. **静音检测**：ffmpeg `silencedetect`，找 >3s 的静音段
-2. **黑场检测**：ffmpeg `blackdetect`，找 >1s 的黑屏
-3. **交叉验证**：静音+黑场同时出现 = 高置信度边界
-4. **时长约束**：过滤不合理的候选（每集 20-30 分钟）
-
----
-
-## 全局选项
-
-所有子命令共享以下全局选项：
-
-```bash
-subalign [全局选项] <子命令> [子命令选项]
-
-# 全局选项
---lang TEXT          语言代码 (ja/en/zh/auto)，默认 auto
---model TEXT         Whisper 模型 (tiny/base/small/medium/large-v3)，默认 medium
---device TEXT        计算设备 (auto/cuda/cpu)，默认 auto
---confidence-threshold FLOAT  置信度阈值，默认 0.7
---output-format TEXT 输出格式 (ass/srt)，默认 ass
---audio-track INT    音频轨道索引（多音轨视频时指定）
-```
-
-**指定音频轨道**（多音轨视频）：
-
-```bash
-# 查看视频中的音频轨道（用 ffprobe）
-ffprobe -v quiet -print_format json -show_streams -select_streams a video.mkv
-
-# 使用第2条音频轨道（如日语原声在第2轨）
-subalign align video.mkv script.txt -o aligned.ass --audio-track 1
-```
-
----
-
-## Aegisub 插件使用
-
-### 安装
-
-将 `src/subalign/plugins/aegisub/subalign.lua` 复制到 Aegisub 的自动加载目录：
-
-**Windows**：
-```
-%APPDATA%\Aegisub\automation\autoload\subalign.lua
-```
-
-**macOS**：
-```
-~/Library/Application Support/Aegisub/automation/autoload/subalign.lua
-```
-
-**Linux**：
-```
-~/.aegisub/automation/autoload/subalign.lua
-```
-
-### 前提
-
-- `subalign` CLI 必须已安装且在系统 PATH 中
-- ffmpeg / ffprobe 在 PATH 中
-
-### 菜单项
-
-安装后重启 Aegisub，在 **Automation** 菜单下会出现：
-
-| 菜单项 | 对应场景 |
-|--------|----------|
-| SubAlign > Re-align timing (S2) | 快速重对齐 |
-| SubAlign > Full ASR alignment (S3) | ASR 全量对齐 |
-| SubAlign > OP/ED frame snap (S4) | 帧级对齐 |
-| SubAlign > Detect BD episodes (S6) | BD 集边界检测 |
-
-### 使用流程
-
-1. 在 Aegisub 中打开视频和字幕文件
-2. 从 Automation > SubAlign 选择对应功能
-3. 在弹出对话框中配置参数（语言、模型等）
-4. 等待处理完成（进度条显示在 Aegisub 底部）
-5. 结果自动应用到当前字幕，支持 Ctrl+Z 撤销
-
----
-
-## 推荐工作流
-
-### 典型动画字幕制作流程
-
-```
-1. 获取视频 + 翻译文稿（纯文本）
-       ↓
-2. subalign align video.mkv script.txt --lang ja -o rough.ass
-       ↓ (ASR 自动打轴)
-3. Aegisub 打开 rough.ass，检查蓝色标记行 [?]
-       ↓ (人工修正低置信度行)
-4. subalign snap video.mkv rough.ass -o oped.ass
-       ↓ (OP/ED 帧对齐)
-5. 完成
-```
-
-### BD 多集 + 双语工作流
-
-```
-1. subalign split-bd bd.mkv --detect-only
-       ↓ (确认集边界)
-2. subalign split-bd bd.mkv --subs ep01.srt ep02.srt ep03.srt -o merged_ja.ass
-       ↓ (日语字幕拼接)
-3. subalign bilingual bd.mkv --primary merged_ja.ass --secondary cn_all.txt -o final.ass
-       ↓ (双语对齐)
-4. Aegisub 打开 final.ass 精修
-```
-
----
-
-## 故障排除
-
-### 常见问题
-
-**Q: `subalign: command not found`**
-
-确保已安装并在 PATH 中：
-```bash
-pip install -e .
-# 或确认 Python Scripts 目录在 PATH 中
-python -m subalign.cli --help
-```
-
-**Q: ffmpeg/ffprobe not found**
-
-安装 ffmpeg 并确认在 PATH 中：
-```bash
-ffmpeg -version
-ffprobe -version
-```
-
-**Q: CUDA out of memory**
-
-使用更小的模型或强制 CPU：
-```bash
-subalign align video.mkv sub.txt -o out.ass --model small --device cpu
-```
-
-**Q: WhisperX 安装失败**
-
-WhisperX 依赖 PyTorch，确保先安装正确版本：
-```bash
-# CUDA 11.8
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# CPU only
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# 然后安装 WhisperX
 pip install whisperx
 ```
-如果 WhisperX 不可用，工具会自动回退到 faster-whisper（仍支持 word-level 时间戳）。
-
-**Q: BD 集边界检测不准**
-
-- 检查 `--detect-only` 输出，确认时长是否合理
-- 调整 `--ep-min` / `--ep-max` 适配非标准时长（如 OVA、特番）
-- 极端情况下，可手动指定边界时间点（未来版本支持）
-
-**Q: 双语行数不匹配怎么办**
-
-工具会自动使用比例分配策略，不匹配的行会标记 `[REVIEW]`。在 Aegisub 中搜索 `REVIEW` 即可定位需要人工检查的行。
 
 ---
 
-## 开发
+## 第二步：使用
+
+### 用法 A：图形界面（推荐）
+
+双击 **`start_gui.bat`** 打开界面：
+
+```
+┌─ SubAlign - 字幕自动对齐工具 ─────────────────────────┐
+│                                                        │
+│  视频文件:  [________________________] [浏览...]       │
+│  字幕文件:  [________________________] [浏览...]       │
+│  输出文件:  [________________________] [浏览...]       │
+│                                                        │
+│  选择操作:                                             │
+│  ● 自动检测 — 让工具自己判断（推荐）                     │
+│  ○ 重新对齐 — 字幕有时间轴但对不上                      │
+│  ○ 全量打轴 — 字幕只有文本没时间轴                      │
+│  ○ 帧对齐   — OP/ED 卡画面帧                          │
+│  ○ 双语对齐 — 两种语言合在一起                          │
+│  ○ BD分集   — 多集BD自动识别集数                       │
+│                                                        │
+│  语言: [auto ▼]  模型: [medium ▼]  设备: [auto ▼]     │
+│                                                        │
+│  [▶ 开始执行]                    [📂 打开输出目录]      │
+│                                                        │
+│  ┌─ 运行日志 ──────────────────────────────────────┐  │
+│  │ >>> subalign auto video.mkv sub.srt -o out.ass  │  │
+│  │ ...                                              │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+```
+
+**操作步骤**：
+1. 点"浏览"选视频文件
+2. 点"浏览"选字幕文件
+3. 选一个操作（不确定选哪个就选"自动检测"）
+4. 点"开始执行"
+5. 等它跑完，会弹窗问你要不要用 Aegisub 打开结果
+
+### 用法 B：Aegisub 插件
+
+**安装插件**：
+
+把项目里的这个文件：
+```
+D:\projects\subalign\src\subalign\plugins\aegisub\subalign.lua
+```
+复制到（Windows 按 Win+R，粘贴这个路径回车就能打开）：
+```
+%APPDATA%\Aegisub\automation\autoload\
+```
+
+重启 Aegisub 后，菜单栏多了一个 **Automation > SubAlign**，里面有：
+- **Re-align timing** — 重新对齐（时间轴不准时用）
+- **Full ASR alignment** — AI 打轴（没有时间轴时用）
+- **OP/ED frame snap** — 卡帧对齐
+- **Detect BD episodes** — BD 分集检测
+
+**使用**：在 Aegisub 里打开视频和字幕，然后从菜单选对应功能就行。
+
+### 用法 C：命令行
+
+如果你熟悉命令行，这几个命令够用了：
+
+```bash
+# 不知道该用啥？自动模式！
+subalign auto 视频.mkv 字幕.srt -o 输出.ass
+
+# 字幕时间轴和视频对不上
+subalign sync 视频.mkv 字幕.srt -o 输出.ass
+
+# 字幕只有文本没时间轴（指定语言为日语）
+subalign align 视频.mkv 字幕.txt --lang ja -o 输出.ass
+
+# OP/ED 卡帧
+subalign snap 视频.mkv oped.ass -o 输出.ass
+
+# 双语（日语+中文）
+subalign bilingual 视频.mkv --primary 日语.srt --secondary 中文.txt -o 双语.ass
+
+# BD 多集：先看看分集对不对
+subalign split-bd BD光盘.mkv --detect-only
+
+# BD 多集：确认后拼字幕
+subalign split-bd BD光盘.mkv --subs ep01.srt ep02.srt ep03.srt -o 合并.ass
+```
+
+---
+
+## 实际工作流示例
+
+### 例1：拿到一个番的翻译稿，要做字幕
+
+```
+① 你有：视频文件 + 翻译好的文本文件（没有时间轴）
+   ↓
+② 运行：subalign align 视频.mkv 翻译.txt --lang ja -o 初版.ass
+   （AI 会听视频里的对白，自动给每句话打上时间）
+   ↓
+③ 用 Aegisub 打开 初版.ass，检查标蓝色的行（那些是 AI 不太确定的）
+   ↓
+④ 手动修正几处后，完成！
+```
+
+### 例2：有别人的字幕但和我的视频版本对不上
+
+```
+① 你有：你的视频 + 别人的字幕（时间轴和你的视频对不上）
+   ↓
+② 运行：subalign sync 视频.mkv 别人的字幕.srt -o 对齐后.ass
+   （几秒钟搞定，不需要 AI，纯音频指纹匹配）
+   ↓
+③ 完成！
+```
+
+### 例3：BD 光盘多集 + 要做日中双语
+
+```
+① 你有：BD 视频（3集连在一起）+ 3个日语字幕 + 1个中文翻译
+
+② 先检测集边界：
+   subalign split-bd BD.mkv --detect-only
+   →  EP01: 0s-1480s   EP02: 1483s-2960s   EP03: 2963s-4440s
+   看着对就继续
+
+③ 拼接日语字幕：
+   subalign split-bd BD.mkv --subs ep01.srt ep02.srt ep03.srt -o 日语合并.ass
+
+④ 合并双语：
+   subalign bilingual BD.mkv --primary 日语合并.ass --secondary 中文翻译.txt -o 双语.ass
+
+⑤ Aegisub 打开 双语.ass 精修
+```
+
+---
+
+## 参数说明（只列常用的）
+
+| 参数 | 意思 | 默认值 | 什么时候要改 |
+|------|------|--------|------------|
+| `--lang` | 视频里说的什么语言 | `auto`（自动识别） | 自动识别不准时手动指定 `ja`/`en`/`zh` |
+| `--model` | AI 模型大小 | `medium` | 想快就用 `tiny`，想准就用 `large-v3` |
+| `--device` | 用 CPU 还是 GPU | `auto` | 显存不够就改成 `cpu` |
+| `-o` | 输出文件路径 | 无（必填） | — |
+
+不确定填什么？**全都不填用默认值就行**，只需要给 `-o 输出文件名`。
+
+---
+
+## 常见问题
+
+**Q: 双击 install.bat 说找不到 Python**
+→ 去 https://www.python.org/downloads/ 下载安装，**一定勾选 "Add Python to PATH"**
+
+**Q: 说找不到 ffmpeg**
+→ 命令提示符输入 `winget install ffmpeg`，或手动下载添加到 PATH
+
+**Q: AI 打轴特别慢**
+→ 没有 GPU 的话 AI 用 CPU 跑确实慢，可以：
+  - 用小模型：加 `--model tiny`（快但不太准）
+  - 如果只是时间轴偏移，用 `sync` 而不是 `align`（不需要 AI，秒完成）
+
+**Q: 打出来的轴不准**
+→ 正常，AI 不是万能的。工具会把不确定的行标蓝色 `[?]`，你在 Aegisub 里重点检查这些行就好
+
+**Q: 双语字幕行数对不上**
+→ 工具会尽力自动匹配，对不上的标 `[REVIEW]`。在 Aegisub 里 Ctrl+H 搜 REVIEW 就能找到
+
+---
+
+## 开发者信息
 
 ```bash
 # 安装开发依赖
@@ -439,8 +258,7 @@ pip install -e ".[full,dev]"
 # 运行测试
 pytest
 
-# 类型检查（可选）
-mypy src/subalign/
+# 完整的技术文档见 CLAUDE.md
 ```
 
 ## License
