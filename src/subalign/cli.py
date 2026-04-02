@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -13,6 +14,19 @@ from rich.table import Table
 from subalign.models.config import AlignConfig
 
 console = Console()
+
+
+def _check_deps():
+    """Check required external dependencies at startup."""
+    missing = []
+    if not shutil.which("ffmpeg"):
+        missing.append("ffmpeg")
+    if not shutil.which("ffprobe"):
+        missing.append("ffprobe")
+    if missing:
+        console.print(f"[red]缺少必要依赖:[/red] {', '.join(missing)}")
+        console.print("[dim]安装方法: winget install ffmpeg (Windows) / brew install ffmpeg (macOS)[/dim]")
+        sys.exit(1)
 
 
 def _make_config(ctx: click.Context) -> AlignConfig:
@@ -50,6 +64,7 @@ def _make_config(ctx: click.Context) -> AlignConfig:
 @click.pass_context
 def main(ctx, **kwargs):
     """SubAlign - AI-powered subtitle auto-alignment tool."""
+    _check_deps()
     ctx.ensure_object(dict)
     ctx.obj.update(kwargs)
 
